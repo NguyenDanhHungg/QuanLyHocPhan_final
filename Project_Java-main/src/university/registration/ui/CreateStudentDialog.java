@@ -1,6 +1,7 @@
 package university.registration.ui;
 
 import university.registration.model.Student;
+import university.registration.service.StudentService;
 import university.registration.store.Memory;
 import university.registration.ui.components.CardPanel;
 
@@ -9,8 +10,20 @@ import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.util.regex.Pattern;
 
+/**
+ * Dialog tạo tài khoản sinh viên mới
+ * 
+ * Lớp này chỉ chịu trách nhiệm về UI:
+ * - Hiển thị form nhập thông tin sinh viên (MSSV, họ tên, email, CTĐT, mật khẩu...)
+ * - Validate dữ liệu đầu vào (format email, mật khẩu khớp...)
+ * - Gọi StudentService để thực hiện logic nghiệp vụ tạo tài khoản
+ */
 public class CreateStudentDialog extends JDialog {
 
+    // Service xử lý logic nghiệp vụ liên quan đến Sinh viên
+    private final StudentService studentService = new StudentService();
+
+    // ========== UI COMPONENTS ==========
     // Các trường nhập liệu của form
     JTextField tfId = new JTextField();
     JTextField tfName = new JTextField();
@@ -252,11 +265,18 @@ public class CreateStudentDialog extends JDialog {
     }
 
     /**
-     * Nút "Tạo tài khoản" gọi vào đây
+     * Xử lý sự kiện khi người dùng nhấn nút "Tạo tài khoản"
+     * 
+     * Quy trình xử lý:
+     * 1. Lấy dữ liệu từ form
+     * 2. Validate dữ liệu đầu vào (kiểm tra rỗng, format email, mật khẩu khớp)
+     * 3. Kiểm tra MSSV và Email đã tồn tại chưa (sử dụng StudentService)
+     * 4. Gọi StudentService để tạo tài khoản
+     * 5. Hiển thị thông báo thành công và đóng dialog
      */
     void create(){
         try{
-            // Lấy dữ liệu từ form
+            // ========== LẤY DỮ LIỆU TỪ FORM ==========
             String id = tfId.getText().trim();
             String name = tfName.getText().trim();
             String dob = tfDob.getText().trim();
@@ -267,7 +287,8 @@ public class CreateStudentDialog extends JDialog {
             String p1 = new String(pf1.getPassword());
             String p2 = new String(pf2.getPassword());
 
-            // Validation
+            // ========== VALIDATION DỮ LIỆU ĐẦU VÀO ==========
+            // Kiểm tra các trường bắt buộc không được để trống
             if(id.isEmpty() || name.isEmpty() || email.isEmpty() ||
                     p1.isEmpty() || p2.isEmpty()){
                 JOptionPane.showMessageDialog(
@@ -279,6 +300,7 @@ public class CreateStudentDialog extends JDialog {
                 return;
             }
 
+            // Kiểm tra mật khẩu và mật khẩu xác nhận có khớp không
             if(!p1.equals(p2)){
                 JOptionPane.showMessageDialog(
                         this,
@@ -289,6 +311,7 @@ public class CreateStudentDialog extends JDialog {
                 return;
             }
 
+            // Kiểm tra format email có hợp lệ không
             if(!isValidEmail(email)){
                 JOptionPane.showMessageDialog(
                         this,
@@ -299,8 +322,9 @@ public class CreateStudentDialog extends JDialog {
                 return;
             }
 
+            // ========== KIỂM TRA DỮ LIỆU ĐÃ TỒN TẠI CHƯA (sử dụng Service) ==========
             // Kiểm tra MSSV đã tồn tại chưa
-            if(Memory.studentsById.containsKey(id)){
+            if(studentService.isStudentIdExists(id)){
                 JOptionPane.showMessageDialog(
                         this,
                         "Mã số sinh viên đã tồn tại. Vui lòng sử dụng mã số khác.",
@@ -310,8 +334,8 @@ public class CreateStudentDialog extends JDialog {
                 return;
             }
 
-            // Kiểm tra email đã tồn tại chưa
-            if(Memory.emailIndex.containsKey(email.toLowerCase())){
+            // Kiểm tra email đã được sử dụng chưa
+            if(studentService.isEmailExists(email)){
                 JOptionPane.showMessageDialog(
                         this,
                         "Email đã được sử dụng. Vui lòng sử dụng email khác.",
@@ -321,21 +345,25 @@ public class CreateStudentDialog extends JDialog {
                 return;
             }
 
-            // Lưu dữ liệu
-            Memory.addStudent(
+            // ========== TẠO TÀI KHOẢN (sử dụng Service) ==========
+            // Gọi StudentService để thực hiện logic nghiệp vụ tạo tài khoản
+            // Service sẽ kiểm tra và lưu vào Memory
+            studentService.addStudent(
                     new Student(id, name, dob, addr, email, program),
                     p1
             );
 
+            // ========== HIỂN THỊ THÔNG BÁO THÀNH CÔNG ==========
             JOptionPane.showMessageDialog(
                     this,
                     "Tạo tài khoản thành công!\n\nMã số sinh viên: " + id + "\nBạn có thể đăng nhập ngay bây giờ.",
                     "Thành công",
                     JOptionPane.INFORMATION_MESSAGE
             );
-            dispose();
+            dispose(); // Đóng dialog
 
         }catch(Exception ex){
+            // Xử lý lỗi: hiển thị thông báo lỗi từ service hoặc exception
             JOptionPane.showMessageDialog(
                     this,
                     "Lỗi: " + ex.getMessage(),
@@ -346,7 +374,14 @@ public class CreateStudentDialog extends JDialog {
     }
 
     /**
-     * Check email bằng regex
+     * Kiểm tra format email có hợp lệ không bằng regex
+     * 
+     * Regex pattern kiểm tra:
+     * - Phần trước @: chứa chữ cái, số, dấu +, _, ., -
+     * - Phần sau @: chứa chữ cái, số, dấu ., -
+     * 
+     * @param email Email cần kiểm tra
+     * @return true nếu email hợp lệ, false nếu không hợp lệ
      */
     boolean isValidEmail(String email){
         String regex = "^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+$";

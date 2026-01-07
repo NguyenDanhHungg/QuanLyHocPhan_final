@@ -1,15 +1,30 @@
 package university.registration.ui;
 
-import university.registration.store.Memory;
-import university.registration.model.Student;
+import university.registration.controller.LoginController;
 import university.registration.ui.components.CardPanel;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
 
+/**
+ * Màn hình đăng nhập chính của ứng dụng
+ * 
+ * Lớp này CHỈ chịu trách nhiệm về UI (Presentation Layer):
+ * - Hiển thị form đăng nhập (tài khoản/email, mật khẩu)
+ * - Tạo và bố trí các UI components (text fields, buttons, labels)
+ * - Xử lý sự kiện UI (nhấn nút, click)
+ * - Chuyển hướng đến màn hình tiếp theo dựa trên kết quả từ Controller
+ * 
+ * Logic nghiệp vụ được xử lý bởi LoginController
+ * Controller sẽ gọi Service layer để xử lý logic thực tế
+ */
 public class LoginFrame extends JFrame {
 
+    // Controller xử lý logic nghiệp vụ (gọi Service layer)
+    private final LoginController loginController = new LoginController();
+
+    // ========== UI COMPONENTS ==========
     // Ô nhập tài khoản / email
     JTextField tfUser = new JTextField();
     // Ô nhập mật khẩu
@@ -210,48 +225,44 @@ public class LoginFrame extends JFrame {
     }
 
     /**
-     * Xử lý khi bấm nút "Đăng nhập"
-     * Tự động nhận diện tài khoản là Admin hay Student
+     * Xử lý sự kiện khi người dùng nhấn nút "Đăng nhập"
+     * 
+     * UI chỉ làm việc:
+     * 1. Lấy dữ liệu từ form
+     * 2. Gọi Controller để xử lý logic
+     * 3. Dựa vào kết quả từ Controller để:
+     *    - Mở màn hình tương ứng (AdminFrame hoặc StudentRegistrationFrame)
+     *    - Hoặc hiển thị thông báo lỗi
+     * 
+     * Tất cả logic nghiệp vụ (validate, xác thực) được xử lý trong Controller
      */
     void doLogin(){
-        String user = tfUser.getText().trim();
+        // Lấy thông tin từ form
+        String user = tfUser.getText();
         String pass = new String(pfPass.getPassword());
 
-        // Kiểm tra nhập đủ
-        if(user.isEmpty() || pass.isEmpty()){
-            JOptionPane.showMessageDialog(this,
-                    "Vui lòng nhập đầy đủ thông tin.");
-            return;
-        }
-
-        // Thử đăng nhập với tài khoản PĐT trước
-        if(Memory.verifyAdmin(user, pass)) {
-            // Đăng nhập PĐT thành công: mở AdminFrame
-            new AdminFrame(this);
-            dispose();
-            return;
-        }
+        // Gọi Controller để xử lý logic đăng nhập
+        // Controller sẽ gọi Service layer để xử lý logic thực tế
+        LoginController.LoginResult result = loginController.login(user, pass);
         
-        // Nếu không phải admin, thử đăng nhập với tài khoản sinh viên
-        // Kiểm tra cả MSSV và email
-        Student student = Memory.studentsById.get(user);
-        if (student == null) {
-            // Nếu không tìm thấy theo MSSV, thử tìm theo email
-            String studentId = Memory.emailIndex.get(user.toLowerCase());
-            if (studentId != null) {
-                student = Memory.studentsById.get(studentId);
-            }
+        // Xử lý kết quả từ Controller (UI chỉ lo hiển thị và điều hướng)
+        switch (result.type) {
+            case ADMIN:
+                // Đăng nhập Admin thành công: mở màn hình quản trị
+                new AdminFrame(this);
+                dispose(); // Đóng màn hình đăng nhập
+                break;
+                
+            case STUDENT:
+                // Đăng nhập sinh viên thành công: mở màn hình đăng ký học phần
+                new StudentRegistrationFrame(this, result.student);
+                dispose(); // Đóng màn hình đăng nhập
+                break;
+                
+            case FAILED:
+                // Đăng nhập thất bại: hiển thị thông báo lỗi
+                JOptionPane.showMessageDialog(this, result.errorMessage);
+                break;
         }
-        
-        if (student != null && Memory.verifyStudent(student.studentId, pass)) {
-            // Đăng nhập sinh viên thành công
-            new StudentRegistrationFrame(this, student);
-            dispose();
-            return;
-        }
-        
-        // Nếu cả hai đều không đúng
-        JOptionPane.showMessageDialog(this,
-                "Tài khoản hoặc mật khẩu không đúng.");
     }
 }

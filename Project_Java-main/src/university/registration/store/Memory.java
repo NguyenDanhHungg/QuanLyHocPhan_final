@@ -5,32 +5,195 @@ import university.registration.model.*;
 import java.text.SimpleDateFormat;
 import java.util.*;
 
+/**
+ * Lớp Memory - Lưu trữ dữ liệu trong bộ nhớ (In-Memory Storage)
+ * 
+ * Đây là lớp quản lý toàn bộ dữ liệu của hệ thống đăng ký học phần.
+ * Tất cả dữ liệu được lưu trữ trong bộ nhớ (RAM) dưới dạng các Map và List.
+ * 
+ * LƯU Ý QUAN TRỌNG:
+ * - Đây là hệ thống demo, dữ liệu chỉ tồn tại trong bộ nhớ
+ * - Khi tắt ứng dụng, tất cả dữ liệu sẽ bị mất (không lưu vào database)
+ * - Trong hệ thống thực tế, cần thay thế bằng database (MySQL, PostgreSQL, v.v.)
+ * 
+ * Cấu trúc dữ liệu:
+ * - adminPasswords: Lưu tài khoản admin (PĐT)
+ * - studentsById: Lưu danh sách sinh viên (tra cứu theo MSSV)
+ * - emailIndex: Index email để tra cứu sinh viên theo email (hỗ trợ đăng nhập bằng email)
+ * - courses: Danh sách tất cả học phần trong hệ thống (không phụ thuộc học kỳ)
+ * - terms: Danh sách các học kỳ (ví dụ: "20252", "20251")
+ * - programs: Danh sách các chương trình đào tạo
+ * - regs: Đăng ký học phần của sinh viên (cấu trúc: MSSV -> Học kỳ -> Danh sách RegItem)
+ * - termSettings: Cấu hình học kỳ (trạng thái mở/đóng đăng ký)
+ * - offerings: Cấu hình mở lớp cho từng học phần trong từng học kỳ
+ * 
+ * Tất cả các biến đều là static final để:
+ * - Chỉ có một instance duy nhất trong toàn bộ ứng dụng (Singleton pattern)
+ * - Không thể thay đổi tham chiếu (nhưng có thể thêm/sửa/xóa phần tử bên trong)
+ */
 public class Memory {
-    /** Tài khoản PĐT (admin): username -> password */
+    /**
+     * Tài khoản Phòng Đào Tạo (Admin): Map<username, password>
+     * 
+     * Lưu trữ thông tin đăng nhập của các tài khoản admin.
+     * 
+     * Ví dụ:
+     *   adminPasswords.put("pdt", "pdt123");
+     *   // Tài khoản admin: username="pdt", password="pdt123"
+     * 
+     * Lưu ý: Trong hệ thống thực tế, mật khẩu nên được hash (băm) trước khi lưu,
+     * không nên lưu plain text như trong code này.
+     */
     public static final Map<String, String> adminPasswords = new HashMap<>();
-    /** Danh sách sinh viên tra theo MSSV: studentId -> Student */
-    public static final Map<String, Student> studentsById   = new HashMap<>();
-    /** Index email: email (lowercase) -> studentId (để kiểm tra email trùng) */
-    public static final Map<String, String> emailIndex      = new HashMap<>();
-    /** Danh sách học phần master (không phụ thuộc học kỳ): code -> Course */
-    public static final Map<String, Course> courses         = new LinkedHashMap<>();
-    /** Danh sách học kỳ (ví dụ: 20252, 20251, ...) */
-    public static final List<String> terms                  = new ArrayList<>();
-    /** Danh sách chương trình đào tạo (CTĐT) */
-    public static final List<String> programs               = new ArrayList<>();
+    
+    /**
+     * Danh sách sinh viên tra cứu theo MSSV: Map<MSSV, Student>
+     * 
+     * Đây là cấu trúc dữ liệu chính để lưu trữ thông tin sinh viên.
+     * Key là MSSV (mã số sinh viên), Value là đối tượng Student.
+     * 
+     * Ví dụ:
+     *   studentsById.put("SV001", student);
+     *   Student s = studentsById.get("SV001");  // Lấy sinh viên có MSSV = "SV001"
+     */
+    public static final Map<String, Student> studentsById = new HashMap<>();
+    
+    /**
+     * Index email để tra cứu sinh viên theo email: Map<email_lowercase, MSSV>
+     * 
+     * Hỗ trợ đăng nhập bằng email (ngoài MSSV).
+     * Email được chuyển về lowercase để không phân biệt hoa/thường.
+     * 
+     * Cấu trúc: email (lowercase) -> MSSV
+     * 
+     * Ví dụ:
+     *   emailIndex.put("sv001@university.edu", "SV001");
+     *   String mssv = emailIndex.get("sv001@university.edu");  // Trả về "SV001"
+     *   Student s = studentsById.get(mssv);  // Lấy sinh viên từ MSSV
+     * 
+     * Được dùng để:
+     * - Kiểm tra email đã được sử dụng chưa (khi tạo tài khoản mới)
+     * - Tìm sinh viên theo email (khi đăng nhập bằng email)
+     */
+    public static final Map<String, String> emailIndex = new HashMap<>();
+    
+    /**
+     * Danh sách học phần master (không phụ thuộc học kỳ): Map<courseCode, Course>
+     * 
+     * Đây là danh sách tất cả học phần có trong hệ thống, không phụ thuộc vào học kỳ.
+     * Mỗi học phần chỉ được định nghĩa một lần, sau đó có thể được mở lớp ở nhiều học kỳ khác nhau.
+     * 
+     * Dùng LinkedHashMap để giữ thứ tự thêm vào (khi duyệt sẽ theo thứ tự đã thêm).
+     * 
+     * Ví dụ:
+     *   courses.put("CT101", new Course("CT101", "Lập trình cơ bản", 3));
+     *   Course c = courses.get("CT101");  // Lấy học phần có mã "CT101"
+     * 
+     * Lưu ý: Để mở lớp cho một học phần trong một học kỳ cụ thể,
+     * cần tạo Offering trong Map offerings (không phải trong courses này).
+     */
+    public static final Map<String, Course> courses = new LinkedHashMap<>();
+    
+    /**
+     * Danh sách học kỳ: List<String>
+     * 
+     * Lưu trữ danh sách các học kỳ trong hệ thống.
+     * Mỗi học kỳ được biểu diễn bằng một chuỗi (ví dụ: "20252", "20251", "20242").
+     * 
+     * Quy ước đặt tên học kỳ (ví dụ: "20252"):
+     * - 4 chữ số đầu: Năm (2025)
+     * - Chữ số cuối: Số thứ tự học kỳ trong năm (2 = học kỳ 2)
+     * 
+     * Ví dụ:
+     *   terms.add("20252");  // Học kỳ 2 năm 2025
+     *   terms.add("20251");  // Học kỳ 1 năm 2025
+     */
+    public static final List<String> terms = new ArrayList<>();
+    
+    /**
+     * Danh sách chương trình đào tạo (CTĐT): List<String>
+     * 
+     * Lưu trữ danh sách các chương trình đào tạo có trong hệ thống.
+     * 
+     * Ví dụ:
+     *   programs.add("Kỹ thuật Điện tử - Viễn thông 2021");
+     *   programs.add("Công nghệ Thông tin 2021");
+     *   programs.add("Kỹ thuật Cơ khí 2021");
+     * 
+     * Được dùng để:
+     * - Hiển thị trong dropdown khi tạo tài khoản sinh viên mới
+     * - Lọc danh sách sinh viên theo khoa/viện trong màn hình duyệt đăng ký
+     * - Kiểm tra quyền đăng ký học phần (một số học phần chỉ dành cho CTĐT cụ thể)
+     */
+    public static final List<String> programs = new ArrayList<>();
 
-    /** Đăng ký học phần:
-     *  regs: studentId -> (term -> list RegItem)
-     *  Mỗi sinh viên, mỗi kỳ có một danh sách các môn đã đăng ký
+    /**
+     * Đăng ký học phần của sinh viên: Map<MSSV, Map<Học kỳ, List<RegItem>>>
+     * 
+     * Cấu trúc dữ liệu 3 cấp:
+     * - Cấp 1: MSSV (mã số sinh viên)
+     * - Cấp 2: Học kỳ (ví dụ: "20252")
+     * - Cấp 3: Danh sách RegItem (các học phần đã đăng ký trong học kỳ đó)
+     * 
+     * Ví dụ:
+     *   regs = {
+     *     "SV001": {                    // Sinh viên có MSSV = "SV001"
+     *       "20252": [                  // Học kỳ "20252"
+     *         RegItem(course=CT101, date="2025-01-15", status="Đã duyệt"),
+     *         RegItem(course=MA101, date="2025-01-15", status="Đã gửi")
+     *       ],
+     *       "20251": [                  // Học kỳ "20251"
+     *         RegItem(course=CT102, date="2024-09-01", status="Đã duyệt")
+     *       ]
+     *     }
+     *   }
+     * 
+     * Mỗi RegItem đại diện cho một học phần mà sinh viên đã đăng ký,
+     * chứa thông tin: học phần, ngày đăng ký, trạng thái đăng ký.
      */
     public static final Map<String, Map<String, List<RegItem>>> regs = new HashMap<>();
 
-    /** Cấu hình học kỳ: term -> TermSetting (mở/khóa đăng ký) */
+    /**
+     * Cấu hình học kỳ: Map<Học kỳ, TermSetting>
+     * 
+     * Lưu trữ cấu hình cho từng học kỳ, chủ yếu là trạng thái mở/đóng đăng ký.
+     * 
+     * Ví dụ:
+     *   termSettings = {
+     *     "20252": TermSetting(registrationOpen=true, ...),   // Học kỳ 20252 đang mở đăng ký
+     *     "20251": TermSetting(registrationOpen=false, ...)    // Học kỳ 20251 đã đóng đăng ký
+     *   }
+     * 
+     * Khi registrationOpen = true:
+     * - Sinh viên có thể đăng ký học phần mới trong học kỳ này
+     * 
+     * Khi registrationOpen = false:
+     * - Sinh viên không thể đăng ký học phần mới
+     * - Các đăng ký đã gửi vẫn có thể được duyệt/từ chối bởi admin
+     */
     public static final Map<String, TermSetting> termSettings = new HashMap<>();
 
-    /** Offering theo học kỳ:
-     *  term -> (courseCode -> Offering)
-     *  Mỗi học kỳ, mỗi học phần có cấu hình mở/đóng, CTĐT được phép
+    /**
+     * Cấu hình mở lớp (Offering) theo học kỳ: Map<Học kỳ, Map<Mã học phần, Offering>>
+     * 
+     * Cấu trúc dữ liệu 2 cấp:
+     * - Cấp 1: Học kỳ (ví dụ: "20252")
+     * - Cấp 2: Mã học phần -> Offering (cấu hình mở lớp cho học phần đó)
+     * 
+     * Mỗi Offering chứa:
+     * - open: Trạng thái mở/đóng lớp (true = mở, false = đóng)
+     * - allowedProgram: Chương trình đào tạo được phép đăng ký ("Tất cả" hoặc tên CTĐT cụ thể)
+     * 
+     * Ví dụ:
+     *   offerings = {
+     *     "20252": {                    // Học kỳ "20252"
+     *       "CT101": Offering(open=true, allowedProgram="Tất cả"),      // Mở cho tất cả
+     *       "ET4010": Offering(open=true, allowedProgram="Kỹ thuật Điện tử - Viễn thông 2021")  // Chỉ cho CTĐT cụ thể
+     *     }
+     *   }
+     * 
+     * Lưu ý: Một học phần có thể có Offering ở nhiều học kỳ khác nhau,
+     * mỗi học kỳ có cấu hình riêng (có thể mở ở kỳ này nhưng đóng ở kỳ khác).
      */
     public static final Map<String, Map<String, Offering>> offerings = new HashMap<>();
 
@@ -54,12 +217,162 @@ public class Memory {
         // Với mỗi học kỳ, tạo TermSetting và mặc định là đang mở đăng ký (true)
         for (String t : terms) termSettings.put(t, new TermSetting(true)); // mặc định mở
 
-        // Thêm các học phần (Course) demo vào danh sách courses
+        // Thêm các học phần (Course) vào danh sách courses
+        // Cơ sở và Tự chọn
         addCourse(new Course("CT101","Lập trình cơ bản",3));
         addCourse(new Course("CT102","Cấu trúc dữ liệu",3));
         addCourse(new Course("EE201","Mạch điện 1",3));
         addCourse(new Course("MA101","Giải tích 1",4));
         addCourse(new Course("PE101","Giáo dục thể chất",2));
+        
+        // GDTC - Tự chọn
+        addCourse(new Course("PE2101","Bóng chuyền 1",3));
+        addCourse(new Course("PE2151","Erobic",3));
+        addCourse(new Course("PE2201","Bóng đá 1",3));
+        addCourse(new Course("PE2251","Taekwondo 1",3));
+        addCourse(new Course("PE2301","Bóng rổ 1",3));
+        addCourse(new Course("PE2401","Bóng bàn 1",3));
+        addCourse(new Course("PE2501","Cầu lông 1",3));
+        addCourse(new Course("PE2601","Chạy",0));
+        addCourse(new Course("PE2701","Nhảy cao",0));
+        addCourse(new Course("PE2801","Nhảy xa",0));
+        addCourse(new Course("PE2901","Xà kép, xà lệch",0));
+        
+        // GDTC - Chuyên sâu
+        addCourse(new Course("PE3101","Chuyên sâu Bóng chuyền 1",1));
+        addCourse(new Course("PE3102","Chuyên sâu Bóng chuyền 2",2));
+        addCourse(new Course("PE3103","Chuyên sâu Bóng chuyền 3",3));
+        addCourse(new Course("PE3201","Chuyên sâu Bóng đá 1",1));
+        addCourse(new Course("PE3202","Chuyên sâu Bóng đá 2",2));
+        addCourse(new Course("PE3203","Chuyên sâu Bóng đá 3",3));
+        addCourse(new Course("PE3301","Chuyên sâu Bóng rổ 1",1));
+        addCourse(new Course("PE3302","Chuyên sâu Bóng rổ 2",2));
+        addCourse(new Course("PE3303","Chuyên sâu Bóng rổ 3",3));
+        
+        // GDTC - Tự chọn (cấp độ 2)
+        addCourse(new Course("PE2102","Bóng chuyền 2",4));
+        addCourse(new Course("PE2202","Bóng đá 2",4));
+        addCourse(new Course("PE2252","Taekwondo 2",4));
+        addCourse(new Course("PE2302","Bóng rổ 2",4));
+        addCourse(new Course("PE2402","Bóng bàn 2",4));
+        addCourse(new Course("PE2502","Cầu lông 2",4));
+        addCourse(new Course("PE3104","Chuyên sâu Bóng chuyền 4",4));
+        addCourse(new Course("PE3204","Chuyên sâu Bóng đá 4",4));
+        addCourse(new Course("PE3304","Chuyên sâu Bóng rổ 4",4));
+        
+        // GDTC - Tự chọn (cấp độ 3)
+        addCourse(new Course("PE2103","Bóng chuyền 3",5));
+        addCourse(new Course("PE2203","Bóng đá 3",5));
+        addCourse(new Course("PE2253","Taekwondo 3",5));
+        addCourse(new Course("PE2303","Bóng rổ 3",5));
+        addCourse(new Course("PE2403","Bóng bàn 3",5));
+        addCourse(new Course("PE2503","Cầu lông 3",5));
+        addCourse(new Course("PE3105","Chuyên sâu Bóng chuyền 5",5));
+        addCourse(new Course("PE3205","Chuyên sâu Bóng đá 5",5));
+        addCourse(new Course("PE3305","Chuyên sâu Bóng rổ 5",5));
+        
+        // GDTC khác
+        addCourse(new Course("PE1014","Lý luận TDTT",1));
+        addCourse(new Course("PE1024","Bơi lội",2));
+        
+        // QP-AN
+        addCourse(new Course("MIL1210","Đường lối quốc phòng và an ninh của ĐCSVN",1));
+        addCourse(new Course("MIL1220","Công tác quốc phòng và an ninh",2));
+        addCourse(new Course("MIL1230","Quân sự chung",2));
+        addCourse(new Course("MIL1240","Kỹ thuật chiến đấu bộ binh và chiến thuật",2));
+        
+        // Ngoại ngữ
+        addCourse(new Course("FL1128","Tiếng Anh tăng cường",1));
+        addCourse(new Course("FL1129","Tiếng Anh cơ sở 1",1));
+        addCourse(new Course("FL1130","Tiếng Anh cơ sở 2",2));
+        
+        // Lý luận chính trị
+        addCourse(new Course("SSH1111","Triết học Mác - Lênin",1));
+        addCourse(new Course("SSH1121","Kinh tế chính trị Mác - Lênin",2));
+        addCourse(new Course("SSH1131","Chủ nghĩa xã hội khoa học",2));
+        addCourse(new Course("SSH1141","Lịch sử Đảng cộng sản Việt Nam",2));
+        addCourse(new Course("SSH1151","Tư tưởng Hồ Chí Minh",2));
+        addCourse(new Course("EM1170","Pháp luật đại cương",2));
+        
+        // Toán-KHCB
+        addCourse(new Course("MI1111","Giải tích I",4));
+        addCourse(new Course("MI1121","Giải tích II",3));
+        addCourse(new Course("MI1131","Giải tích III",3));
+        addCourse(new Course("MI1141","Đại số",4));
+        addCourse(new Course("MI2010","Phương pháp tính",2));
+        addCourse(new Course("MI2020","Xác suất thống kê",3));
+        addCourse(new Course("PH1111","Vật lý đại cương I",2));
+        addCourse(new Course("PH1122","Vật lý đại cương II",4));
+        addCourse(new Course("PH3330","Vật lý điện tử",3));
+        addCourse(new Course("IT1110","Tin học đại cương",4));
+        
+        // Cơ sở ngành
+        addCourse(new Course("ET2000","Nhập môn kỹ thuật điện tử-viễn thông",2));
+        addCourse(new Course("ET2021","Thực tập cơ bản",2));
+        addCourse(new Course("ET2031","Kỹ thuật lập trình C/C++",2));
+        addCourse(new Course("ET2040","Cấu kiện điện tử",3));
+        addCourse(new Course("ET2050","Lý thuyết mạch",3));
+        addCourse(new Course("ET2060","Tín hiệu và hệ thống",3));
+        addCourse(new Course("ET2072","Lý thuyết thông tin",2));
+        addCourse(new Course("ET2080","Cơ sở kỹ thuật đo lường",2));
+        addCourse(new Course("ET2100","Cấu trúc dữ liệu và giải thuật",2));
+        addCourse(new Course("ET3210","Trường điện từ",3));
+        addCourse(new Course("ET3220","Điện tử số",3));
+        addCourse(new Course("ET3230","Điện tử tương tự I",3));
+        addCourse(new Course("ET3241","Điện tử tương tự II",2));
+        addCourse(new Course("ET3250","Thông tin số",3));
+        addCourse(new Course("ET3260","Kỹ thuật phần mềm ứng dụng",2));
+        addCourse(new Course("ET3270","Thực tập kỹ thuật",2));
+        addCourse(new Course("ET3280","Anten và truyền sóng",2));
+        addCourse(new Course("ET3290","Đồ án thiết kế I",2));
+        addCourse(new Course("ET3300","Kỹ thuật vi xử lý",3));
+        addCourse(new Course("ET4010","Đồ án thiết kế II",2));
+        addCourse(new Course("ET4020","Xử lý tín hiệu số",3));
+        addCourse(new Course("ET2022","Technical Writing and Presentation",3));
+        
+        // Bổ trợ
+        addCourse(new Course("EM1010","Quản trị học đại cương",2));
+        addCourse(new Course("EM1180","Văn hóa kinh doanh và tinh thần khởi nghiệp",2));
+        addCourse(new Course("ED3280","Tâm lý học ứng dụng",2));
+        addCourse(new Course("ED3220","Kỹ năng mềm",2));
+        addCourse(new Course("ET3262","Tư duy công nghệ và thiết kế kỹ thuật",2));
+        addCourse(new Course("CH2021","Đổi mới sáng tạo và khởi nghiệp",2));
+        addCourse(new Course("ME3123","Thiết kế mỹ thuật công nghiệp",2));
+        addCourse(new Course("ME3124","Thiết kế quảng bá sản phẩm",2));
+        
+        // Mô đun
+        addCourse(new Course("ET3310","Lý thuyết mật mã",3));
+        addCourse(new Course("ET4230","Mạng máy tính",3));
+        addCourse(new Course("ET4250","Hệ thống viễn thông",3));
+        addCourse(new Course("ET4070","Cơ sở truyền số liệu",3));
+        addCourse(new Course("ET4291","Hệ điều hành",3));
+        addCourse(new Course("ET3180","Thông tin vô tuyến",3));
+        
+        // Mô đun - Y sinh
+        addCourse(new Course("ET4100","Cơ sở điện sinh học",2));
+        addCourse(new Course("ET4471","Mạch xử lý tín hiệu y sinh",3));
+        addCourse(new Course("ET4450","Giải phẫu và sinh lý học",2));
+        addCourse(new Course("ET4110","Cảm biến và KT đo lường y sinh",3));
+        addCourse(new Course("ET4480","Công nghệ chẩn đoán hình ảnh I",3));
+        addCourse(new Course("ET4120","Thiết bị điện tử y sinh I",2));
+        
+        // Mô đun - Hàng không/Vũ trụ
+        addCourse(new Course("ET4130","Truyền số liệu và chuyển tiếp điện văn",3));
+        addCourse(new Course("ET4140","Định vị và dẫn đường điện tử",3));
+        
+        // Mô đun - Đa phương tiện
+        addCourse(new Course("ET4260","Đa phương tiện",2));
+        addCourse(new Course("ET4370","Kỹ thuật truyền hình",2));
+        
+        // Mô đun - Vi mạch
+        addCourse(new Course("ET4358","Cơ sở công nghệ vi điện tử",3));
+        addCourse(new Course("ET4340","Thiết kế VLSI",3));
+        addCourse(new Course("ET4033","Thiết kế IC tương tự",3));
+        addCourse(new Course("ET4356","Kiểm chứng và kiểm tra vi mạch",3));
+        addCourse(new Course("ET4361","Hệ thống nhúng và thiết kế giao tiếp nhúng",3));
+        
+        // Đồ án nghiên cứu
+        addCourse(new Course("ET4920","Đồ án nghiên cứu Cử nhân (KT Điện tử - Viễn thông)",8));
 
         // Mở offering cho HỌC KỲ MỚI NHẤT – cho tất cả chương trình học (CTĐT)
         String latest = terms.get(0); // phần tử đầu trong list terms (20252)
